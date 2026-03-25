@@ -15,7 +15,7 @@ async function startServer() {
 
   const PORT = process.env.PORT || 3000;
   httpServer.listen(PORT, '0.0.0.0', () => {
-     console.log(`Server running on port ${PORT}`);
+    console.log(`Server running on port ${PORT}`);
   });
 
   // Game State
@@ -62,6 +62,8 @@ async function startServer() {
           availableNumbers: Array.from({ length: 90 }, (_, i) => i + 1),
           status: "waiting",
           lastNumber: null,
+          winner: null,          // для хранения победителя
+          timeoutId: null,
         });
       }
 
@@ -84,11 +86,12 @@ async function startServer() {
         room.drawnNumbers = [];
         room.availableNumbers = Array.from({ length: 90 }, (_, i) => i + 1);
         room.drawInterval = intervalMs || 4000;
+        room.winner = null; // сброс победителя на случай рестарта
         io.to(roomId).emit("game-started", room);
         
         // Start drawing numbers
         const drawNext = () => {
-          if (room.status !== "playing" || room.availableNumbers.length === 0) {
+          if (room.status !== "playing" || room.availableNumbers.length === 0 || room.winner) {
             return;
           }
           
@@ -102,6 +105,7 @@ async function startServer() {
           room.timeoutId = setTimeout(drawNext, room.drawInterval);
         };
 
+        if (room.timeoutId) clearTimeout(room.timeoutId);
         room.timeoutId = setTimeout(drawNext, room.drawInterval);
       }
     });
@@ -113,6 +117,33 @@ async function startServer() {
         if (room.timeoutId) clearTimeout(room.timeoutId);
         io.to(roomId).emit("room-update", room);
       }
+    });
+
+    socket.on("bingo", ({ roomId, cardIdx }) => {
+      const room = rooms.get(roomId);
+      if (!room) return;
+      // Если игра не в процессе или уже есть победитель – игнорируем
+      if (room.status !== "playing" || room.winner) return;
+
+      // Находим игрока, отправившего bingo
+      const player = room.players.find((p: any) => p.id === socket.id);
+      if (!player) return;
+
+      // Проверяем, что все числа на указанной карточке действительно выпали
+      const card = player.cards[cardIdx];
+      const cardNumbers = card.flat().filter((n: number | null) => n !== null);
+      const allDrawn = cardNumbers.every((num: number) => room.drawnNumbers.includes(num));
+      if (!allDrawn) return;
+
+      // Объявляем победителя
+      room.winner = {
+        username: player.username,
+        winnerId: socket.id,
+        cardIdx: cardIdx,
+      };
+      room.status = "finished";
+      if (room.timeoutId) clearTimeout(room.timeoutId);
+      io.to(roomId).emit("winner", { username: player.username, winnerId: socket.id });
     });
 
     socket.on("disconnect", () => {
