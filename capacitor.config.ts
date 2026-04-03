@@ -5,9 +5,7 @@ const config: CapacitorConfig = {
   appName: 'Русское Лото Онлайн',
   webDir: 'dist',
   server: {
-    cleartext: true,
-    androidScheme: 'http',
-    url: 'http://192.168.0.19:3000'
+    cleartext: true
   }
 };
 
